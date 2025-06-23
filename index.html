@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contador de Contracciones</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .timer-display {
+            font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-md mx-auto">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-pink-600">Contador de Contracciones</h1>
+            <p class="text-gray-500 mt-1">Mide la duración y frecuencia de tus contracciones.</p>
+        </header>
+
+        <main class="bg-white p-6 rounded-2xl shadow-lg w-full">
+
+            <!-- Display principal del cronómetro -->
+            <div class="text-center mb-6">
+                <p class="text-lg text-gray-500">Duración Actual</p>
+                <p id="main-timer" class="text-6xl md:text-7xl font-bold text-gray-800 my-2 timer-display">00:00</p>
+            </div>
+            
+            <!-- Estadísticas clave -->
+            <div class="grid grid-cols-2 gap-4 mb-8 text-center">
+                <div class="bg-pink-50 p-4 rounded-lg">
+                    <p class="text-sm text-pink-700 font-medium">Última Duración</p>
+                    <p id="last-duration" class="text-2xl font-bold text-pink-800 timer-display">--:--</p>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <p class="text-sm text-blue-700 font-medium">Última Frecuencia</p>
+                    <p id="last-frequency" class="text-2xl font-bold text-blue-800 timer-display">--:--</p>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-lg">
+                    <p class="text-sm text-purple-700 font-medium">Prom. Duración (3)</p>
+                    <p id="avg-duration" class="text-2xl font-bold text-purple-800 timer-display">--:--</p>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <p class="text-sm text-green-700 font-medium">Prom. Frecuencia (3)</p>
+                    <p id="avg-frequency" class="text-2xl font-bold text-green-800 timer-display">--:--</p>
+                </div>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex flex-col space-y-4">
+                <button id="main-button" class="w-full text-white font-bold py-4 px-6 rounded-xl text-xl transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 bg-pink-500 hover:bg-pink-600 focus:ring-pink-400">
+                    Iniciar Contracción
+                </button>
+                <button id="reset-button" class="w-full bg-gray-200 text-gray-700 font-medium py-3 px-6 rounded-xl transition-colors hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400">
+                    Reiniciar
+                </button>
+            </div>
+        </main>
+        
+        <!-- Historial de Contracciones -->
+        <section class="mt-8">
+            <h2 class="text-xl font-bold text-center mb-4 text-gray-700">Historial</h2>
+            <div id="history-container" class="bg-white rounded-2xl shadow-lg p-4 max-h-72 overflow-y-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs text-gray-500 uppercase">
+                        <tr>
+                            <th scope="col" class="px-2 py-2">Inicio</th>
+                            <th scope="col" class="px-2 py-2">Fin</th>
+                            <th scope="col" class="px-2 py-2 text-center">Duración</th>
+                            <th scope="col" class="px-2 py-2 text-center">Frecuencia</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body">
+                         <tr id="empty-history-message">
+                            <td colspan="4" class="text-center text-gray-400 py-8">Aún no hay contracciones registradas.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const mainTimerDisplay = document.getElementById('main-timer');
+        const lastDurationDisplay = document.getElementById('last-duration');
+        const lastFrequencyDisplay = document.getElementById('last-frequency');
+        const avgDurationDisplay = document.getElementById('avg-duration');
+        const avgFrequencyDisplay = document.getElementById('avg-frequency');
+        const mainButton = document.getElementById('main-button');
+        const resetButton = document.getElementById('reset-button');
+        const historyBody = document.getElementById('history-body');
+        const emptyHistoryMessage = document.getElementById('empty-history-message');
+
+        // --- State Variables ---
+        let isContracting = false;
+        let timerInterval = null;
+        let startTime = null;
+        let lastContractionEndTime = null;
+        let contractionsHistory = [];
+
+        // --- Utility Functions ---
+        /**
+         * Formats total seconds into MM:SS format.
+         * @param {number} totalSeconds - The total seconds to format.
+         * @returns {string} The formatted time string.
+         */
+        function formatTime(totalSeconds) {
+            if (isNaN(totalSeconds) || totalSeconds <= 0) {
+                return '--:--';
+            }
+            const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+            const seconds = Math.round(totalSeconds % 60).toString().padStart(2, '0');
+            return `${minutes}:${seconds}`;
+        }
+
+        /**
+         * Renders the history of contractions in the table.
+         */
+        function renderHistory() {
+            historyBody.innerHTML = '';
+            if (contractionsHistory.length === 0) {
+                historyBody.appendChild(emptyHistoryMessage);
+            } else {
+                contractionsHistory.forEach(contraction => {
+                    const row = document.createElement('tr');
+                    row.className = 'border-b border-gray-100 last:border-b-0';
+                    
+                    const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+                    const startTimeFormatted = new Date(contraction.startTime).toLocaleTimeString('es-ES', timeOptions);
+                    const endTimeFormatted = new Date(contraction.endTime).toLocaleTimeString('es-ES', timeOptions);
+
+                    row.innerHTML = `
+                        <td class="px-2 py-3 font-medium text-gray-800">${startTimeFormatted}</td>
+                        <td class="px-2 py-3 font-medium text-gray-800">${endTimeFormatted}</td>
+                        <td class="px-2 py-3 text-center timer-display">${formatTime(contraction.duration)}</td>
+                        <td class="px-2 py-3 text-center timer-display">${formatTime(contraction.frequency)}</td>
+                    `;
+                    historyBody.prepend(row);
+                });
+            }
+        }
+        
+        /**
+         * Calculates and updates the average duration and frequency for the last 3 contractions.
+         */
+        function updateAverages() {
+            // Average Duration
+            const lastThreeDurations = contractionsHistory.map(c => c.duration).slice(-3);
+            if (lastThreeDurations.length > 0) {
+                const avgDuration = lastThreeDurations.reduce((a, b) => a + b, 0) / lastThreeDurations.length;
+                avgDurationDisplay.textContent = formatTime(avgDuration);
+            } else {
+                 avgDurationDisplay.textContent = '--:--';
+            }
+            
+            // Average Frequency
+            const lastThreeFrequencies = contractionsHistory.map(c => c.frequency).filter(f => f > 0).slice(-3);
+            if(lastThreeFrequencies.length > 0) {
+                const avgFrequency = lastThreeFrequencies.reduce((a, b) => a + b, 0) / lastThreeFrequencies.length;
+                avgFrequencyDisplay.textContent = formatTime(avgFrequency);
+            } else {
+                 avgFrequencyDisplay.textContent = '--:--';
+            }
+        }
+
+        /**
+         * Updates the main timer display every second.
+         */
+        function updateTimer() {
+            const now = new Date();
+            const elapsedSeconds = Math.round((now - startTime) / 1000);
+            mainTimerDisplay.textContent = formatTime(elapsedSeconds);
+        }
+
+        // --- Event Handlers ---
+        /**
+         * Handles the click on the main start/stop button.
+         */
+        function handleMainButtonClick() {
+            isContracting = !isContracting;
+
+            if (isContracting) {
+                // STARTING a contraction
+                startTime = new Date();
+                
+                if (lastContractionEndTime) {
+                    const frequencySeconds = Math.round((startTime - lastContractionEndTime) / 1000);
+                    lastFrequencyDisplay.textContent = formatTime(frequencySeconds);
+                } else {
+                    lastFrequencyDisplay.textContent = '--:--';
+                }
+
+                updateTimer();
+                timerInterval = setInterval(updateTimer, 1000);
+
+                mainButton.textContent = 'Detener Contracción';
+                mainButton.classList.remove('bg-pink-500', 'hover:bg-pink-600', 'focus:ring-pink-400');
+                mainButton.classList.add('bg-red-500', 'hover:bg-red-600', 'focus:ring-red-400');
+                
+            } else {
+                // STOPPING a contraction
+                const endTime = new Date();
+                clearInterval(timerInterval);
+                timerInterval = null;
+
+                const durationSeconds = Math.round((endTime - startTime) / 1000);
+                const frequencySeconds = lastContractionEndTime ? Math.round((startTime - lastContractionEndTime) / 1000) : 0;
+                
+                contractionsHistory.push({
+                    startTime: startTime.getTime(),
+                    endTime: endTime.getTime(),
+                    duration: durationSeconds,
+                    frequency: frequencySeconds,
+                });
+
+                mainTimerDisplay.textContent = "00:00";
+                lastDurationDisplay.textContent = formatTime(durationSeconds);
+                renderHistory();
+                updateAverages();
+                
+                lastContractionEndTime = endTime;
+
+                mainButton.textContent = 'Iniciar Contracción';
+                mainButton.classList.remove('bg-red-500', 'hover:bg-red-600', 'focus:ring-red-400');
+                mainButton.classList.add('bg-pink-500', 'hover:bg-pink-600', 'focus:ring-pink-400');
+            }
+        }
+
+        /**
+         * Handles the click on the reset button.
+         */
+        function handleResetClick() {
+            if (contractionsHistory.length > 0 && !confirm('¿Estás seguro de que quieres borrar todo el historial?')) {
+                return;
+            }
+
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+
+            isContracting = false;
+            startTime = null;
+            lastContractionEndTime = null;
+            contractionsHistory = [];
+
+            mainTimerDisplay.textContent = '00:00';
+            lastDurationDisplay.textContent = '--:--';
+            lastFrequencyDisplay.textContent = '--:--';
+            avgDurationDisplay.textContent = '--:--';
+            avgFrequencyDisplay.textContent = '--:--';
+            mainButton.textContent = 'Iniciar Contracción';
+            mainButton.classList.remove('bg-red-500', 'hover:bg-red-600', 'focus:ring-red-400');
+            mainButton.classList.add('bg-pink-500', 'hover:bg-pink-600', 'focus:ring-pink-400');
+            renderHistory();
+        }
+
+        // --- Event Listeners ---
+        mainButton.addEventListener('click', handleMainButtonClick);
+        resetButton.addEventListener('click', handleResetClick);
+    </script>
+
+</body>
+</html>
